@@ -7,10 +7,8 @@ pragma solidity ^0.4.24;
 
   Austin Thomas Griffith - https://austingriffith.com
 
-  Original Proof Of Concept:
-    https://github.com/austintgriffith/token-subscription
-
   Building on previous works:
+    https://github.com/austintgriffith/token-subscription
     https://gist.github.com/androolloyd/0a62ef48887be00a5eff5c17f2be849a
     https://media.consensys.net/subscription-services-on-the-blockchain-erc-948-6ef64b083a36
     https://medium.com/gitcoin/technical-deep-dive-architecture-choices-for-subscriptions-on-the-blockchain-erc948-5fae89cabc7a
@@ -21,26 +19,48 @@ pragma solidity ^0.4.24;
   Earlier Meta Transaction Demo:
     https://github.com/austintgriffith/bouncer-proxy
 
-  Huge thanks to, as always, to OpenZeppelin for the rad contracts:
+  Huge thanks, as always, to OpenZeppelin for the rad contracts:
  */
 
 import "openzeppelin-solidity/contracts/cryptography/ECDSA.sol";
 import "openzeppelin-solidity/contracts/math/SafeMath.sol";
-import "openzeppelin-solidity/contracts/ownership/Ownable.sol";
 import "openzeppelin-solidity/contracts/token/ERC20/ERC20.sol";
 
 
-contract Subscription is Ownable {
+contract Subscription {
     using ECDSA for bytes32;
     using SafeMath for uint256;
 
+    //who deploys the contract
+    address public author;
+
     // the publisher may optionally deploy requirements for the subscription
     // so only meta transactions that match the requirements can be relayed
-    address requiredToAddress;
-    address requiredTokenAddress;
-    uint256 requiredTokenAmount;
-    uint256 requiredPeriodSeconds;
-    uint256 requiredGasPrice;
+    address public requiredToAddress;
+    address public requiredTokenAddress;
+    uint256 public requiredTokenAmount;
+    uint256 public requiredPeriodSeconds;
+    uint256 public requiredGasPrice;
+
+    // similar to a nonce that avoids replay attacks this allows a single execution
+    // every x seconds for a given subscription
+    // subscriptionHash  => next valid block number
+    mapping(bytes32 => uint256) public nextValidTimestamp;
+
+    //we'll use a nonce for each from but because transactions can go through
+    //multiple times, we allow anything but users can use this as a signal for
+    //uniqueness
+    mapping(address => uint256) public extraNonce;
+
+    event ExecuteSubscription(
+        address indexed from, //the subscriber
+        address indexed to, //the publisher
+        address tokenAddress, //the token address paid to the publisher
+        uint256 tokenAmount, //the token amount paid to the publisher
+        uint256 periodSeconds, //the period in seconds between payments
+        uint256 gasPrice, //the amount of tokens to pay relayer (0 for free)
+        uint256 nonce // to allow multiple subscriptions with the same parameters
+    );
 
     constructor(
         address _toAddress,
@@ -54,21 +74,8 @@ contract Subscription is Ownable {
         requiredTokenAmount=_tokenAmount;
         requiredPeriodSeconds=_periodSeconds;
         requiredGasPrice=_gasPrice;
+        author=msg.sender;
     }
-
-    event ExecuteSubscription(
-        address indexed from, //the subscriber
-        address indexed to, //the publisher
-        address tokenAddress, //the token address paid to the publisher
-        uint256 tokenAmount, //the token amount paid to the publisher
-        uint256 periodSeconds, //the period in seconds between payments
-        uint256 gasPrice //the amount of tokens to pay relayer (0 for free)
-    );
-
-    // similar to a nonce that avoids replay attacks this allows a single execution
-    // every x seconds for a given subscription
-    // subscriptionHash  => next valid block number
-    mapping(bytes32 => uint256) public nextValidTimestamp;
 
     // this is used by external smart contracts to verify on-chain that a
     // particular subscription is "paid" and "active"
@@ -82,8 +89,8 @@ contract Subscription is Ownable {
         view
         returns (bool)
     {
-        return (block.timestamp >=
-                    nextValidTimestamp[subscriptionHash].sub(gracePeriodSeconds)
+        return (block.timestamp <=
+                nextValidTimestamp[subscriptionHash].add(gracePeriodSeconds)
         );
     }
 
@@ -95,7 +102,8 @@ contract Subscription is Ownable {
         address tokenAddress, //the token address paid to the publisher
         uint256 tokenAmount, //the token amount paid to the publisher
         uint256 periodSeconds, //the period in seconds between payments
-        uint256 gasPrice //the amount of tokens or eth to pay relayer (0 for free)
+        uint256 gasPrice, //the amount of tokens or eth to pay relayer (0 for free)
+        uint256 nonce // to allow multiple subscriptions with the same parameters
     )
         public
         view
@@ -111,7 +119,8 @@ contract Subscription is Ownable {
                 tokenAddress,
                 tokenAmount,
                 periodSeconds,
-                gasPrice
+                gasPrice,
+                nonce
         ));
     }
 
@@ -136,21 +145,25 @@ contract Subscription is Ownable {
         uint256 tokenAmount, //the token amount paid to the publisher
         uint256 periodSeconds, //the period in seconds between payments
         uint256 gasPrice, //the amount of the token to incentivize the relay network
+        uint256 nonce,// to allow multiple subscriptions with the same parameters
         bytes signature //proof the subscriber signed the meta trasaction
     )
-        public
+        external
         view
         returns (bool)
     {
         bytes32 subscriptionHash = getSubscriptionHash(
-            from, to, tokenAddress, tokenAmount, periodSeconds, gasPrice
+            from, to, tokenAddress, tokenAmount, periodSeconds, gasPrice, nonce
         );
         address signer = getSubscriptionSigner(subscriptionHash, signature);
         uint256 allowance = ERC20(tokenAddress).allowance(from, address(this));
+        uint256 balance = ERC20(tokenAddress).balanceOf(from);
         return (
             signer == from &&
+            from != to &&
             block.timestamp >= nextValidTimestamp[subscriptionHash] &&
-            allowance >= tokenAmount.add(gasPrice)
+            allowance >= tokenAmount.add(gasPrice) &&
+            balance >= tokenAmount.add(gasPrice)
         );
     }
 
@@ -164,15 +177,16 @@ contract Subscription is Ownable {
         uint256 tokenAmount, //the token amount paid to the publisher
         uint256 periodSeconds, //the period in seconds between payments
         uint256 gasPrice, //the amount of tokens or eth to pay relayer (0 for free)
+        uint256 nonce, //to allow multiple subscriptions with the same parameters
         bytes signature //proof the subscriber signed the meta trasaction
     )
-        public
+        external
         returns (bool success)
     {
         bytes32 subscriptionHash = getSubscriptionHash(
-            from, to, tokenAddress, tokenAmount, periodSeconds, gasPrice
+            from, to, tokenAddress, tokenAmount, periodSeconds, gasPrice, nonce
         );
-        address signer = subscriptionHash.toEthSignedMessageHash().recover(signature);
+        address signer = getSubscriptionSigner(subscriptionHash, signature);
 
         //the signature must be valid
         require(signer == from, "Invalid Signature for subscription cancellation");
@@ -193,6 +207,7 @@ contract Subscription is Ownable {
         uint256 tokenAmount, //the token amount paid to the publisher
         uint256 periodSeconds, //the period in seconds between payments
         uint256 gasPrice, //the amount of tokens or eth to pay relayer (0 for free)
+        uint256 nonce, // to allow multiple subscriptions with the same parameters
         bytes signature //proof the subscriber signed the meta trasaction
     )
         public
@@ -201,10 +216,12 @@ contract Subscription is Ownable {
         // make sure the subscription is valid and ready
         // pulled this out so I have the hash, should be exact code as "isSubscriptionReady"
         bytes32 subscriptionHash = getSubscriptionHash(
-            from, to, tokenAddress, tokenAmount, periodSeconds, gasPrice
+            from, to, tokenAddress, tokenAmount, periodSeconds, gasPrice, nonce
         );
         address signer = getSubscriptionSigner(subscriptionHash, signature);
 
+        //make sure they aren't sending to themselves
+        require(to != from, "Can not send to the from address");
         //the signature must be valid
         require(signer == from, "Invalid Signature");
         //timestamp must be equal to or past the next period
@@ -221,21 +238,28 @@ contract Subscription is Ownable {
         require( requiredPeriodSeconds == 0 || periodSeconds == requiredPeriodSeconds );
         require( requiredGasPrice == 0 || gasPrice == requiredGasPrice );
 
+        //increment the timestamp by the period so it wont be valid until then
         nextValidTimestamp[subscriptionHash] = block.timestamp.add(periodSeconds);
 
+        //check to see if this nonce is larger than the current count and we'll set that for this 'from'
+        if(nonce > extraNonce[from]){
+          extraNonce[from] = nonce;
+        }
+
         // now, let make the transfer from the subscriber to the publisher
+        ERC20(tokenAddress).transferFrom(from,to,tokenAmount);
         require(
-          ERC20(tokenAddress).transferFrom(from,to,tokenAmount),
-          "Transfer Failed"
+            checkSuccess(),
+            "Subscription::executeSubscription TransferFrom failed"
         );
 
         emit ExecuteSubscription(
-            from, to, tokenAddress, tokenAmount, periodSeconds, gasPrice
+            from, to, tokenAddress, tokenAmount, periodSeconds, gasPrice, nonce
         );
 
         // it is possible for the subscription execution to be run by a third party
         // incentivized in the terms of the subscription with a gasPrice of the tokens
-        // pay that out now...
+        //  - pay that out now...
         if (gasPrice > 0) {
             //the relayer is incentivized by a little of the same token from
             // the subscriber ... as far as the subscriber knows, they are
@@ -245,12 +269,54 @@ contract Subscription is Ownable {
             // this must all be setup in the constructor
             // if not, the subscriber chooses all the params including what goes
             // to the publisher and what goes to the relayer
+            ERC20(tokenAddress).transferFrom(from, msg.sender, gasPrice);
             require(
-                ERC20(tokenAddress).transferFrom(from, msg.sender, gasPrice),
-                "Failed to pay gas as from account"
+                checkSuccess(),
+                "Subscription::executeSubscription Failed to pay gas as from account"
             );
         }
 
         return true;
+    }
+
+    // because of issues with non-standard erc20s the transferFrom can always return false
+    // to fix this we run it and then check the return of the previous function:
+    //    https://github.com/ethereum/solidity/issues/4116
+    /**
+     * Checks the return value of the previous function. Returns true if the previous function
+     * function returned 32 non-zero bytes or returned zero bytes.
+     */
+    function checkSuccess(
+    )
+        private
+        pure
+        returns (bool)
+    {
+        uint256 returnValue = 0;
+
+        /* solium-disable-next-line security/no-inline-assembly */
+        assembly {
+            // check number of bytes returned from last function call
+            switch returndatasize
+
+            // no bytes returned: assume success
+            case 0x0 {
+                returnValue := 1
+            }
+
+            // 32 bytes returned: check if non-zero
+            case 0x20 {
+                // copy 32 bytes into scratch space
+                returndatacopy(0x0, 0x0, 0x20)
+
+                // load those bytes into returnValue
+                returnValue := mload(0x0)
+            }
+
+            // not sure what was returned: dont mark as success
+            default { }
+        }
+
+        return returnValue != 0;
     }
 }
