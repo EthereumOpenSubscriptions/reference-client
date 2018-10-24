@@ -8,59 +8,13 @@ const app = express();
 const fs = require('fs');
 const Redis = require('ioredis');
 const ContractLoader = require('./modules/contractLoader.js');
+
 var twilio = require('twilio');
 
 var twilioClient
 try{
   twilioClient = new twilio(fs.readFileSync("twilio.sid").toString().trim(), fs.readFileSync("twilio.token").toString().trim());
 }catch(e){}
-
-const Room = require('ipfs-pubsub-room')
-const IPFS = require('ipfs')
-const ipfs = new IPFS({
-  EXPERIMENTAL: {
-    pubsub: true
-  },
-  config: {
-    Addresses: {
-      Swarm: [
-        '/dns4/ws-star.discovery.libp2p.io/tcp/443/wss/p2p-websocket-star'
-      ]
-    }
-  }
-})
-const IPFS_ROOM_NAME = "tokensubscription.com"
-
-ipfs.on('ready', () => {
-  const room = Room(ipfs, IPFS_ROOM_NAME)
-
-  room.on('peer joined', (peer) => {
-    console.log('IPFS: Peer joined the room', peer)
-  })
-
-  room.on('peer left', (peer) => {
-    console.log('IPFS: Peer left...', peer)
-  })
-
-  // now started to listen to room
-  room.on('subscribed', () => {
-    console.log('IPFS: Now connected!')
-  })
-
-  room.on('message', (message) => {
-
-    console.log("IPFS: message:",message,message.data.toString())
-    try{
-      let data = JSON.parse(message.data)
-      console.log("IPFS DATA:",data)
-      saveSubscription(data)
-    }catch(e){
-      console.log(e)
-    }
-
-
-  })
-})
 
 var bodyParser = require('body-parser')
 app.use(bodyParser.json());
@@ -399,9 +353,22 @@ app.get('/abi/:address', (req, res) => {
 app.post('/saveSubscription', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   console.log("/saveSubscription",req.body)
-
-  //saveSubscription(req.body)
-
+  let account = web3.eth.accounts.recover(req.body.subscriptionHash,req.body.signature)////instead of trusting the hash you pass them you should really go get it yourself once the parts look good
+  console.log("RECOVERED:",account)
+  if(account.toLowerCase()==req.body.parts[0].toLowerCase()){
+    console.log("Correct sig... relay subscription to contract... might want more filtering here, but just blindly do it for now")
+    redis.get(subscriptionListKey, function (err, result) {
+      let subscriptions
+      try{
+        subscriptions = JSON.parse(result)
+      }catch(e){contracts = []}
+      if(!subscriptions) subscriptions = []
+    //  console.log("current subscriptions:",subscriptions)
+      subscriptions.push(req.body)
+    //  console.log("saving subscriptions:",subscriptions)
+      redis.set(subscriptionListKey,JSON.stringify(subscriptions),'EX', 60 * 60 * 24 * 7);
+    });
+  }
   res.set('Content-Type', 'application/json');
   res.end(JSON.stringify({subscriptionHash:req.body.subscriptionHash}));
 
@@ -425,25 +392,7 @@ app.post('/saveSubscription', (req, res) => {
 });
 
 
-let saveSubscription = (body)=>{
-  console.log("SAVE",body)
-  let account = web3.eth.accounts.recover(body.subscriptionHash,body.signature)////instead of trusting the hash you pass them you should really go get it yourself once the parts look good
-  console.log("RECOVERED:",account)
-  if(account.toLowerCase()==body.parts[0].toLowerCase()){
-    console.log("Correct sig... relay subscription to contract... might want more filtering here, but just blindly do it for now")
-    redis.get(subscriptionListKey, function (err, result) {
-      let subscriptions
-      try{
-        subscriptions = JSON.parse(result)
-      }catch(e){contracts = []}
-      if(!subscriptions) subscriptions = []
-    //  console.log("current subscriptions:",subscriptions)
-      subscriptions.push(body)
-    //  console.log("saving subscriptions:",subscriptions)
-      redis.set(subscriptionListKey,JSON.stringify(subscriptions),'EX', 60 * 60 * 24 * 7);
-    });
-  }
-}
+
 
 
 ///////////////////------------------------------------------------------------------------------------ JER's API
