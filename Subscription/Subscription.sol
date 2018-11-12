@@ -245,6 +245,14 @@ contract Subscription {
         // make sure the subscription is valid and ready
         require(isSubscriptionReady(from, to, tokenAddress, tokenAmount, periodSeconds, gasPrice, nonce, signature), "Subscription is not ready or conditions of transction are not met")
 
+        //increment the timestamp by the period so it wont be valid until then
+        nextValidTimestamp[subscriptionHash] = block.timestamp.add(periodSeconds);
+
+        //check to see if this nonce is larger than the current count and we'll set that for this 'from'
+        if(nonce > extraNonce[from]){
+          extraNonce[from] = nonce;
+        }
+
         // now, let make the transfer from the subscriber to the publisher
         uint256 startingBalance = ERC20(tokenAddress).balanceOf(to);
         ERC20(tokenAddress).transferFrom(from,to,tokenAmount);
@@ -258,13 +266,6 @@ contract Subscription {
           "Subscription::executeSubscription TransferFrom failed"
           );
 
-        //increment the timestamp by the period so it wont be valid until then
-        nextValidTimestamp[subscriptionHash] = nextValidTimestamp[subscriptionHash].add(periodSeconds);
-
-        //check to see if this nonce is larger than the current count and we'll set that for this 'from'
-        if(nonce > extraNonce[from]){
-          extraNonce[from] = nonce;
-        }
 
         emit ExecuteSubscription(
             from, to, tokenAddress, tokenAmount, periodSeconds, gasPrice, nonce
