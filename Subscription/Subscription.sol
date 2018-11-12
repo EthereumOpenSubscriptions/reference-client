@@ -169,7 +169,7 @@ contract Subscription {
         uint256 nonce,// to allow multiple subscriptions with the same parameters
         bytes signature //proof the subscriber signed the meta trasaction
     )
-        external
+        public
         view
         returns (bool)
     {
@@ -242,8 +242,12 @@ contract Subscription {
         public
         returns (bool success)
     {
+        bytes32 subscriptionHash = getSubscriptionHash(
+            from, to, tokenAddress, tokenAmount, periodSeconds, gasPrice, nonce
+        );
+
         // make sure the subscription is valid and ready
-        require(isSubscriptionReady(from, to, tokenAddress, tokenAmount, periodSeconds, gasPrice, nonce, signature), "Subscription is not ready or conditions of transction are not met")
+        require( isSubscriptionReady(from, to, tokenAddress, tokenAmount, periodSeconds, gasPrice, nonce, signature), "Subscription is not ready or conditions of transction are not met" );
 
         //increment the timestamp by the period so it wont be valid until then
         nextValidTimestamp[subscriptionHash] = block.timestamp.add(periodSeconds);
