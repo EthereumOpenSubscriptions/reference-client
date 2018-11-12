@@ -243,7 +243,7 @@ contract Subscription {
         returns (bool success)
     {
         // make sure the subscription is valid and ready
-        require(isSubscriptionReady(to, from, tokenAddress, tokenAmount, periodSeconds, gasPrice, nonce, signature), "Subscription is not ready or conditions of transction are not met")
+        require(isSubscriptionReady(from, to, tokenAddress, tokenAmount, periodSeconds, gasPrice, nonce, signature), "Subscription is not ready or conditions of transction are not met")
 
         // now, let make the transfer from the subscriber to the publisher
         uint256 startingBalance = ERC20(tokenAddress).balanceOf(to);
