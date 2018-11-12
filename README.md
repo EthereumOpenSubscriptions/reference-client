@@ -5,3 +5,11 @@
 [https://tokensubscription.com](https://tokensubscription.com) allows publishers (service providers) to deploy a smart contract on Ethereum with parameters for a subscription including destination address, token address, token amount, and period of recurrence. The publisher then supplies a link to the subscriber that is presented with the terms of the subscription to sign an off-chain meta transaction that is replayed on the defined period. The subscriber controls the flow of the tokens (starting, stopping, pausing, etc) using the ERC20 standard approve() function.
 
 Usually a nonce is used for replay protection, but the heart of the trick with [https://tokensubscription.com](https://tokensubscription.com) is a replay-able nonce that works on a defined schedule. In combination with the ERC20 allowances and meta transactions an extremely simple token subscription service can be created.
+
+# first place overall [#wyominghackathon](https://wyominghackathon.devpost.com/)
+
+![winnerscircle](https://user-images.githubusercontent.com/2653167/45587047-52a9f580-b8bd-11e8-8969-8ebda26e78e7.jpg)
+
+[https://devpost.com/software/token-subscription](https://devpost.com/software/token-subscription)
+
+![9i9a0053](https://user-images.githubusercontent.com/2653167/45361717-2c6c1900-b590-11e8-8d3f-3a32e9bc89b2.JPG)
