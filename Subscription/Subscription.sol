@@ -33,6 +33,7 @@ contract Subscription {
 
     //who deploys the contract
     address public author;
+    uint8 public contractVersion;
 
     // the publisher may optionally deploy requirements for the subscription
     // so only meta transactions that match the requirements can be relayed
@@ -41,6 +42,7 @@ contract Subscription {
     uint256 public requiredTokenAmount;
     uint256 public requiredPeriodSeconds;
     uint256 public requiredGasPrice;
+
 
     // similar to a nonce that avoids replay attacks this allows a single execution
     // every x seconds for a given subscription
@@ -77,7 +79,8 @@ contract Subscription {
         address _tokenAddress,
         uint256 _tokenAmount,
         uint256 _periodSeconds,
-        uint256 _gasPrice
+        uint256 _gasPrice,
+        uint8 _version
     ) public {
         requiredToAddress=_toAddress;
         requiredTokenAddress=_tokenAddress;
@@ -85,6 +88,7 @@ contract Subscription {
         requiredPeriodSeconds=_periodSeconds;
         requiredGasPrice=_gasPrice;
         author=msg.sender;
+        contractVersion=_version;
     }
 
     // this is used by external smart contracts to verify on-chain that a
